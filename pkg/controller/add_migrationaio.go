@@ -17,10 +17,10 @@ limitations under the License.
 package controller
 
 import (
-	"github.com/fusor/mig-controller/pkg/controller/migrationplan"
+	"github.com/fusor/mig-controller/pkg/controller/migrationaio"
 )
 
 func init() {
 	// AddToManagerFuncs is a list of functions to create controllers and add them to a manager.
-	AddToManagerFuncs = append(AddToManagerFuncs, migrationplan.Add)
+	AddToManagerFuncs = append(AddToManagerFuncs, migrationaio.Add)
 }

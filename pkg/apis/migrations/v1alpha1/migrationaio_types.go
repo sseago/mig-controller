@@ -17,26 +17,20 @@ limitations under the License.
 package v1alpha1
 
 import (
-	kapi "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
 // NOTE: json tags are required.  Any new fields you add must have json tags for the fields to be serialized.
 
-// MigrationPlanSpec defines the desired state of MigrationPlan
-type MigrationPlanSpec struct {
+// MigrationAIOSpec defines the desired state of MigrationAIO
+type MigrationAIOSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
-
-	SrcClusterRef               *kapi.ObjectReference `json:"srcClusterRef,omitempty"`
-	DestClusterRef              *kapi.ObjectReference `json:"destClusterRef,omitempty"`
-	MigrationStorageRef         *kapi.ObjectReference `json:"migrationStorageRef,omitempty"`
-	MigrationAssetCollectionRef *kapi.ObjectReference `json:"migrationAssetCollectionRef,omitempty"`
 }
 
-// MigrationPlanStatus defines the observed state of MigrationPlan
-type MigrationPlanStatus struct {
+// MigrationAIOStatus defines the observed state of MigrationAIO
+type MigrationAIOStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
@@ -44,25 +38,25 @@ type MigrationPlanStatus struct {
 // +genclient
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// MigrationPlan is the Schema for the migrationplans API
+// MigrationAIO is the Schema for the migrationaios API
 // +k8s:openapi-gen=true
-type MigrationPlan struct {
+type MigrationAIO struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   MigrationPlanSpec   `json:"spec,omitempty"`
-	Status MigrationPlanStatus `json:"status,omitempty"`
+	Spec   MigrationAIOSpec   `json:"spec,omitempty"`
+	Status MigrationAIOStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// MigrationPlanList contains a list of MigrationPlan
-type MigrationPlanList struct {
+// MigrationAIOList contains a list of MigrationAIO
+type MigrationAIOList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []MigrationPlan `json:"items"`
+	Items           []MigrationAIO `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&MigrationPlan{}, &MigrationPlanList{})
+	SchemeBuilder.Register(&MigrationAIO{}, &MigrationAIOList{})
 }

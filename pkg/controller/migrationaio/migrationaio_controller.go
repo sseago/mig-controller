@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package migration
+package migrationaio
 
 import (
 	"context"
@@ -44,7 +44,7 @@ var log = logf.Log.WithName("controller")
 * business logic.  Delete these comments after modifying this file.*
  */
 
-// Add creates a new Migration Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
+// Add creates a new MigrationAIO Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager) error {
 	return add(mgr, newReconciler(mgr))
@@ -52,28 +52,28 @@ func Add(mgr manager.Manager) error {
 
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	return &ReconcileMigration{Client: mgr.GetClient(), scheme: mgr.GetScheme()}
+	return &ReconcileMigrationAIO{Client: mgr.GetClient(), scheme: mgr.GetScheme()}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Create a new controller
-	c, err := controller.New("migration-controller", mgr, controller.Options{Reconciler: r})
+	c, err := controller.New("migrationaio-controller", mgr, controller.Options{Reconciler: r})
 	if err != nil {
 		return err
 	}
 
-	// Watch for changes to Migration
-	err = c.Watch(&source.Kind{Type: &migrationsv1alpha1.Migration{}}, &handler.EnqueueRequestForObject{})
+	// Watch for changes to MigrationAIO
+	err = c.Watch(&source.Kind{Type: &migrationsv1alpha1.MigrationAIO{}}, &handler.EnqueueRequestForObject{})
 	if err != nil {
 		return err
 	}
 
 	// TODO(user): Modify this to be the types you create
-	// Uncomment watch a Deployment created by Migration - change this for objects you create
+	// Uncomment watch a Deployment created by MigrationAIO - change this for objects you create
 	err = c.Watch(&source.Kind{Type: &appsv1.Deployment{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
-		OwnerType:    &migrationsv1alpha1.Migration{},
+		OwnerType:    &migrationsv1alpha1.MigrationAIO{},
 	})
 	if err != nil {
 		return err
@@ -82,26 +82,26 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	return nil
 }
 
-var _ reconcile.Reconciler = &ReconcileMigration{}
+var _ reconcile.Reconciler = &ReconcileMigrationAIO{}
 
-// ReconcileMigration reconciles a Migration object
-type ReconcileMigration struct {
+// ReconcileMigrationAIO reconciles a MigrationAIO object
+type ReconcileMigrationAIO struct {
 	client.Client
 	scheme *runtime.Scheme
 }
 
-// Reconcile reads that state of the cluster for a Migration object and makes changes based on the state read
-// and what is in the Migration.Spec
+// Reconcile reads that state of the cluster for a MigrationAIO object and makes changes based on the state read
+// and what is in the MigrationAIO.Spec
 // TODO(user): Modify this Reconcile function to implement your Controller logic.  The scaffolding writes
 // a Deployment as an example
 // Automatically generate RBAC rules to allow the Controller to read and write Deployments
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=deployments/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=migrations.openshift.io,resources=migrations,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=migrations.openshift.io,resources=migrations/status,verbs=get;update;patch
-func (r *ReconcileMigration) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	// Fetch the Migration instance
-	instance := &migrationsv1alpha1.Migration{}
+// +kubebuilder:rbac:groups=migrations.openshift.io,resources=migrationaios,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=migrations.openshift.io,resources=migrationaios/status,verbs=get;update;patch
+func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+	// Fetch the MigrationAIO instance
+	instance := &migrationsv1alpha1.MigrationAIO{}
 	err := r.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
