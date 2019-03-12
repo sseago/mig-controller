@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	kapi "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -27,12 +28,26 @@ import (
 type MigrationAIOSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	SrcClusterCoordinatesRef  *kapi.ObjectReference `json:"srcClusterCoordinatesRef,omitempty"`
+	DestClusterCoordinatesRef *kapi.ObjectReference `json:"destClusterCoordinatesRef,omitempty"`
+
+	BackupStorageLocationRef  *kapi.ObjectReference `json:"backupStorageLocationRef,omitempty"`
+	VolumeSnapshotLocationRef *kapi.ObjectReference `json:"volumeSnapshotLocationRef,omitempty"`
+
+	MigrationNamespaces []string `json:"migrationNamespaces"`
+	MigrationImages     []string `json:"migrationImages"`
+
+	ScheduledStart metav1.Time `json:"scheduledStart,omitempty"`
 }
 
 // MigrationAIOStatus defines the observed state of MigrationAIO
 type MigrationAIOStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	Phase      string `json:"phase"`
+	Conditions []MigrationCondition
 }
 
 // +genclient
@@ -55,6 +70,56 @@ type MigrationAIOList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []MigrationAIO `json:"items"`
+}
+
+// MigrationPhase is a label for the condition of a MigrationAIO at the current time.
+type MigrationPhase string
+
+// These are the valid statuses of MigrationAIOs.
+const (
+	// Migration has not yet started. MigrationPlan has been changed and the controller
+	// is validating the new contents of the MigrationPlan.
+	MigrationPrecheck MigrationPhase = "MigrationPrecheck"
+	// Migration precheck uncovered an issue.
+	MigrationPrecheckFailed MigrationPhase = "MigrationPrecheckFailed"
+	// Migration has been checked and is scheduled to run at a later time.
+	MigrationScheduled MigrationPhase = "ValidMigrationScheduled"
+	// Migration is running
+	RunningMigration MigrationPhase = "RunningMigration"
+	// Migration completed successfully
+	MigrationSucceeded MigrationPhase = "MigrationSucceeded"
+	// Migration failed while running
+	MigrationFailed MigrationPhase = "MigrationFailed"
+	// Unexpected state occured, perhaps we can't contact Velero for update
+	Unknown MigrationPhase = "Unknown"
+)
+
+// MigrationCondition contains details for the current condition of this MigrationAIO resource.
+type MigrationCondition struct {
+	// Type is the type of the condition.
+	// More info: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle#pod-conditions
+	Type string `json:"type"`
+
+	// Status is the status of the condition.
+	// Can be True, False, Unknown.
+	// More info: https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle#pod-conditions
+	Status string `json:"status"`
+
+	// Last time we probed the condition.
+	// +optional
+	LastProbeTime metav1.Time `json:"lastProbeTime,omitempty"`
+
+	// Last time the condition transitioned from one status to another.
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty"`
+
+	// Unique, one-word, CamelCase reason for the condition's last transition.
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	// Human-readable message indicating details about last transition.
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 func init() {
