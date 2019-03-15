@@ -19,10 +19,13 @@ package migrationaio
 import (
 	"context"
 	"reflect"
+	"time"
 
 	migrationsv1alpha1 "github.com/fusor/mig-controller/pkg/apis/migrations/v1alpha1"
+	velerov1 "github.com/heptio/velero/pkg/apis/velero/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	kapi "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -165,5 +168,77 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 			return reconcile.Result{}, err
 		}
 	}
+
+	// [DJWHATLE]
+	// put ObjectReference to Deployment into all spec fields of watched object
+	mySrcCluster := &kapi.ObjectReference{
+		APIVersion:      deploy.APIVersion,
+		Kind:            deploy.Kind,
+		Name:            deploy.Name,
+		Namespace:       deploy.Namespace,
+		ResourceVersion: deploy.ResourceVersion,
+		UID:             deploy.UID,
+	}
+
+	currentTime := time.Now()
+
+	instance.Spec.SrcClusterCoordinatesRef = mySrcCluster
+	instance.Spec.DestClusterCoordinatesRef = mySrcCluster
+	instance.Spec.ScheduledStart = metav1.Time{Time: currentTime}
+
+	// [VELERO BACKUP]
+
+	backup := &velerov1.Backup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "nginx-backup",
+			Namespace: "velero",
+		},
+		Spec: velerov1.BackupSpec{
+			LabelSelector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"app": "nginx"},
+			},
+			StorageLocation:    "default",
+			TTL:                metav1.Duration{Duration: 720 * time.Hour},
+			IncludedNamespaces: []string{"*"},
+		},
+	}
+
+	// // [CREATE VELERO NAMESPACE IF NEEDED]
+	// nsSpec := &kapi.Namespace{ObjectMeta: metav1.ObjectMeta{Name: backup.Namespace}}
+	// if err != nil && errors.IsNotFound(err) {
+	// 	log.Info("Creating heptio-ark namespace", "namespace", backup.Namespace)
+	// 	err = r.Create(context.TODO(), nsSpec)
+	// 	if err != nil {
+	// 		return reconcile.Result{}, err
+	// 	}
+	// } else if err != nil {
+	// 	return reconcile.Result{}, err
+	// }
+
+	// // Create backup if not found
+	// if err != nil {
+	// 	return reconcile.Result{}, err
+	// }
+
+	curBackup := &velerov1.Backup{}
+	err = r.Get(context.TODO(), types.NamespacedName{Name: backup.Name, Namespace: backup.Namespace}, curBackup)
+	if err != nil && errors.IsNotFound(err) {
+		log.Info("Creating Velero Backup", "namespace", backup.Namespace, "name", backup.Name)
+		err = r.Create(context.TODO(), backup)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+	} else if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	log.Info("Updating MigrationAIO", "namespace", instance.Namespace, "name", instance.Name)
+	err = r.Update(context.TODO(), instance)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
+	// [DJWHATLE]
+
 	return reconcile.Result{}, nil
 }
