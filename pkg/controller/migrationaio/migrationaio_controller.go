@@ -19,15 +19,10 @@ package migrationaio
 import (
 	"context"
 	"reflect"
-	"time"
 
 	migrationsv1alpha1 "github.com/fusor/mig-controller/pkg/apis/migrations/v1alpha1"
 	velerov1 "github.com/heptio/velero/pkg/apis/velero/v1"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	kapi "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -74,7 +69,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 
 	// TODO(user): Modify this to be the types you create
 	// Uncomment watch a Deployment created by MigrationAIO - change this for objects you create
-	err = c.Watch(&source.Kind{Type: &appsv1.Deployment{}}, &handler.EnqueueRequestForOwner{
+	err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
 		OwnerType:    &migrationsv1alpha1.MigrationAIO{},
 	})
@@ -103,6 +98,7 @@ type ReconcileMigrationAIO struct {
 // +kubebuilder:rbac:groups=migrations.openshift.io,resources=migrationaios,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=migrations.openshift.io,resources=migrationaios/status,verbs=get;update;patch
 func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+	log.Info("*** RECONCILE LOOP TRIGGER ***")
 	// Fetch the MigrationAIO instance
 	instance := &migrationsv1alpha1.MigrationAIO{}
 	err := r.Get(context.TODO(), request.NamespacedName, instance)
@@ -110,135 +106,79 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 		if errors.IsNotFound(err) {
 			// Object not found, return.  Created objects are automatically garbage collected.
 			// For additional cleanup logic use finalizers.
+			log.Error(err, "Exit 1")
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
+		log.Error(err, "Exit 2")
 		return reconcile.Result{}, err
 	}
 
-	// TODO(user): Change this to be the object type created by your controller
-	// Define the desired Deployment object
-	deploy := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      instance.Name + "-deployment",
-			Namespace: instance.Namespace,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"deployment": instance.Name + "-deployment"},
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"deployment": instance.Name + "-deployment"}},
-				Spec: corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "nginx",
-							Image: "nginx",
-						},
-					},
-				},
-			},
-		},
-	}
-	if err := controllerutil.SetControllerReference(instance, deploy, r.scheme); err != nil {
-		return reconcile.Result{}, err
-	}
+	veleroNs := "velero"
+	// ################################################
+	// # Create a Velero 'Backup' on the source cluster
+	// ################################################
+	nsToBackup := instance.Spec.MigrationNamespaces
+	newBackup := getVeleroBackup(veleroNs, instance.Name+"-backup", nsToBackup)
 
-	// TODO(user): Change this for the object type created by your controller
-	// Check if the Deployment already exists
-	found := &appsv1.Deployment{}
-	err = r.Get(context.TODO(), types.NamespacedName{Name: deploy.Name, Namespace: deploy.Namespace}, found)
-	if err != nil && errors.IsNotFound(err) {
-		log.Info("Creating Deployment", "namespace", deploy.Namespace, "name", deploy.Name)
-		err = r.Create(context.TODO(), deploy)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-	} else if err != nil {
-		return reconcile.Result{}, err
-	}
-
-	// TODO(user): Change this for the object type created by your controller
-	// Update the found object and write the result back if there are any changes
-	if !reflect.DeepEqual(deploy.Spec, found.Spec) {
-		found.Spec = deploy.Spec
-		log.Info("Updating Deployment", "namespace", deploy.Namespace, "name", deploy.Name)
-		err = r.Update(context.TODO(), found)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-	}
-
-	// [DJWHATLE]
-	// put ObjectReference to Deployment into all spec fields of watched object
-	mySrcCluster := &kapi.ObjectReference{
-		APIVersion:      deploy.APIVersion,
-		Kind:            deploy.Kind,
-		Name:            deploy.Name,
-		Namespace:       deploy.Namespace,
-		ResourceVersion: deploy.ResourceVersion,
-		UID:             deploy.UID,
-	}
-
-	currentTime := time.Now()
-
-	instance.Spec.SrcClusterCoordinatesRef = mySrcCluster
-	instance.Spec.DestClusterCoordinatesRef = mySrcCluster
-	instance.Spec.ScheduledStart = metav1.Time{Time: currentTime}
-
-	// [VELERO BACKUP]
-
-	backup := &velerov1.Backup{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "nginx-backup",
-			Namespace: "velero",
-		},
-		Spec: velerov1.BackupSpec{
-			LabelSelector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": "nginx"},
-			},
-			StorageLocation:    "default",
-			TTL:                metav1.Duration{Duration: 720 * time.Hour},
-			IncludedNamespaces: []string{"*"},
-		},
-	}
-
-	// // [CREATE VELERO NAMESPACE IF NEEDED]
-	// nsSpec := &kapi.Namespace{ObjectMeta: metav1.ObjectMeta{Name: backup.Namespace}}
-	// if err != nil && errors.IsNotFound(err) {
-	// 	log.Info("Creating heptio-ark namespace", "namespace", backup.Namespace)
-	// 	err = r.Create(context.TODO(), nsSpec)
-	// 	if err != nil {
-	// 		return reconcile.Result{}, err
-	// 	}
-	// } else if err != nil {
-	// 	return reconcile.Result{}, err
-	// }
-
-	// // Create backup if not found
-	// if err != nil {
-	// 	return reconcile.Result{}, err
-	// }
-
-	curBackup := &velerov1.Backup{}
-	err = r.Get(context.TODO(), types.NamespacedName{Name: backup.Name, Namespace: backup.Namespace}, curBackup)
-	if err != nil && errors.IsNotFound(err) {
-		log.Info("Creating Velero Backup", "namespace", backup.Namespace, "name", backup.Name)
-		err = r.Create(context.TODO(), backup)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
-	} else if err != nil {
-		return reconcile.Result{}, err
-	}
-
-	log.Info("Updating MigrationAIO", "namespace", instance.Namespace, "name", instance.Name)
-	err = r.Update(context.TODO(), instance)
+	// Set controller reference on 'Backup' object so that we can watch it
+	err = controllerutil.SetControllerReference(instance, newBackup, r.scheme)
 	if err != nil {
+		log.Error(err, "SetControllerReference fail on newBackup")
 		return reconcile.Result{}, err
 	}
 
-	// [DJWHATLE]
+	// Check if a 'Backup' resource already exists
+	existingBackup := &velerov1.Backup{}
+	err = r.Get(context.TODO(), types.NamespacedName{Name: newBackup.Name, Namespace: newBackup.Namespace}, existingBackup)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			// Backup not found
+			err = r.Create(context.TODO(), newBackup)
+			if err != nil {
+				log.Error(err, "Exit 3: Failed to CREATE Velero Backup")
+				return reconcile.Result{}, nil
+			}
+			log.Info("Velero Backup CREATED successfully")
+		}
+		// Error reading the 'Backup' object - requeue the request.
+		log.Error(err, "Exit 4: Requeueing")
+		return reconcile.Result{}, err
+	}
+
+	if !reflect.DeepEqual(existingBackup.Spec, newBackup.Spec) {
+		// Send "Create" action for Velero Backup to K8s API
+		err = r.Update(context.TODO(), newBackup)
+		if err != nil {
+			log.Error(err, "Failed to UPDATE Velero Backup")
+			return reconcile.Result{}, nil
+		}
+		log.Info("Velero Backup CREATED successfully")
+	}
+
+	// ######################################################
+	// # Create a Velero 'Restore' on the destination cluster
+	// ######################################################
+	destClusterURL := instance.Spec.DestClusterURL
+	destClusterToken := instance.Spec.DestClusterToken
+
+	remoteK8sClient, err := getControllerRuntimeClient(destClusterURL, destClusterToken)
+	if err != nil {
+		log.Error(err, "Failed to GET remoteK8sClient")
+		return reconcile.Result{}, nil
+	}
+
+	restore := getVeleroRestore(veleroNs, instance.Name+"-restore", "uniqueBackupNameTodo")
+
+	// *** TODO - check if restore already exists before attempting to create
+
+	// Send "Create" action for Velero Backup to K8s API
+	err = remoteK8sClient.Create(context.TODO(), restore)
+	if err != nil {
+		log.Error(err, "Failed to CREATE Velero Restore on remote cluster")
+		return reconcile.Result{}, nil
+	}
+	log.Info("Velero Restore CREATED successfully on remote cluster")
 
 	return reconcile.Result{}, nil
 }

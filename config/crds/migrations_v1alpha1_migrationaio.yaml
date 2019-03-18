@@ -28,28 +28,18 @@ spec:
           type: object
         spec:
           properties:
-            backupStorageLocationRef:
-              type: object
-            destClusterCoordinatesRef:
-              type: object
-            migrationImages:
-              items:
-                type: string
-              type: array
+            destClusterToken:
+              type: string
+            destClusterURL:
+              type: string
             migrationNamespaces:
               items:
                 type: string
               type: array
-            scheduledStart:
-              format: date-time
-              type: string
-            srcClusterCoordinatesRef:
-              type: object
-            volumeSnapshotLocationRef:
-              type: object
           required:
+          - destClusterURL
+          - destClusterToken
           - migrationNamespaces
-          - migrationImages
           type: object
         status:
           properties:
