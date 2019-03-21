@@ -159,7 +159,8 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 
 	if !reflect.DeepEqual(existingBackup.Spec, newBackup.Spec) {
 		// Send "Create" action for Velero Backup to K8s API
-		err = r.Update(context.TODO(), newBackup)
+		existingBackup.Spec = newBackup.Spec
+		err = r.Update(context.TODO(), existingBackup)
 		if err != nil {
 			log.Error(err, "Failed to UPDATE Velero Backup")
 			return reconcile.Result{}, nil
@@ -181,7 +182,7 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{}, nil
 	}
 
-	newRestore := getVeleroRestore(veleroNs, instance.Name+"-restore", "uniqueBackupNameTodo")
+	newRestore := getVeleroRestore(veleroNs, instance.Name+"-restore", "nginx-backup")
 
 	// *** TODO - check if restore already exists before attempting to create
 	existingRestore := &velerov1.Restore{}
@@ -196,10 +197,12 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 				return reconcile.Result{}, nil
 			}
 			log.Info("Velero Restore CREATED successfully on remote cluster")
+			return reconcile.Result{}, nil
 		}
 	}
 	if !reflect.DeepEqual(existingRestore.Spec, newRestore.Spec) {
-		err = r.Update(context.TODO(), newRestore)
+		existingRestore.Spec = newRestore.Spec
+		err = remoteK8sClient.Update(context.TODO(), existingRestore)
 		if err != nil {
 			log.Error(err, "Failed to UPDATE Velero Restore")
 			return reconcile.Result{}, nil
