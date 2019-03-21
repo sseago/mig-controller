@@ -67,12 +67,23 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
-	// TODO(user): Modify this to be the types you create
-	// Uncomment watch a Deployment created by MigrationAIO - change this for objects you create
-	err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &handler.EnqueueRequestForOwner{
-		IsController: true,
-		OwnerType:    &migrationsv1alpha1.MigrationAIO{},
-	})
+	// // Uncomment watch a Velero Backup created by MigrationAIO - change this for objects you create
+	// err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &handler.EnqueueRequestForOwner{
+	// 	IsController: true,
+	// 	OwnerType:    &migrationsv1alpha1.MigrationAIO{},
+	// })
+	// if err != nil {
+	// 	return err
+	// }
+
+	// Watch for changes to Velero Backup
+	err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &handler.EnqueueRequestForObject{})
+	if err != nil {
+		return err
+	}
+
+	// Watch for changes to Velro Restore
+	err = c.Watch(&source.Kind{Type: &velerov1.Restore{}}, &handler.EnqueueRequestForObject{})
 	if err != nil {
 		return err
 	}
@@ -98,7 +109,7 @@ type ReconcileMigrationAIO struct {
 // +kubebuilder:rbac:groups=migrations.openshift.io,resources=migrationaios,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=migrations.openshift.io,resources=migrationaios/status,verbs=get;update;patch
 func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	log.Info("*** RECONCILE LOOP TRIGGER ***")
+	log.Info("*** RECONCILE LOOP TRIGGER *** | [namespace]: " + request.Namespace + " | [name]: " + request.Name)
 	// Fetch the MigrationAIO instance
 	instance := &migrationsv1alpha1.MigrationAIO{}
 	err := r.Get(context.TODO(), request.NamespacedName, instance)
@@ -106,8 +117,8 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 		if errors.IsNotFound(err) {
 			// Object not found, return.  Created objects are automatically garbage collected.
 			// For additional cleanup logic use finalizers.
-			log.Error(err, "Exit 1")
-			return reconcile.Result{}, nil
+			log.Info("Exit 1 - Got reconcile event for MigrationAIO that no longer exists...")
+			return reconcile.Result{Requeue: false}, nil
 		}
 		// Error reading the object - requeue the request.
 		log.Error(err, "Exit 2")
@@ -153,7 +164,9 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 			log.Error(err, "Failed to UPDATE Velero Backup")
 			return reconcile.Result{}, nil
 		}
-		log.Info("Velero Backup CREATED successfully")
+		log.Info("Velero Backup UPDATED successfully")
+	} else {
+		log.Info("Velero Backup EXISTS already")
 	}
 
 	// ######################################################
@@ -168,17 +181,33 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{}, nil
 	}
 
-	restore := getVeleroRestore(veleroNs, instance.Name+"-restore", "uniqueBackupNameTodo")
+	newRestore := getVeleroRestore(veleroNs, instance.Name+"-restore", "uniqueBackupNameTodo")
 
 	// *** TODO - check if restore already exists before attempting to create
-
-	// Send "Create" action for Velero Backup to K8s API
-	err = remoteK8sClient.Create(context.TODO(), restore)
+	existingRestore := &velerov1.Restore{}
+	err = remoteK8sClient.Get(context.TODO(), types.NamespacedName{Name: newRestore.Name, Namespace: newRestore.Namespace}, existingRestore)
 	if err != nil {
-		log.Error(err, "Failed to CREATE Velero Restore on remote cluster")
-		return reconcile.Result{}, nil
+		if errors.IsNotFound(err) {
+			log.Error(info, "Velero Restore NOT FOUND, creating...")
+			// Send "Create" action for Velero Backup to K8s API
+			err = remoteK8sClient.Create(context.TODO(), newRestore)
+			if err != nil {
+				log.Error(err, "Failed to CREATE Velero Restore on remote cluster")
+				return reconcile.Result{}, nil
+			}
+			log.Info("Velero Restore CREATED successfully on remote cluster")
+		}
 	}
-	log.Info("Velero Restore CREATED successfully on remote cluster")
+	if !reflect.DeepEqual(existingRestore.Spec, newRestore.Spec) {
+		err = r.Update(context.TODO(), newRestore)
+		if err != nil {
+			log.Error(err, "Failed to UPDATE Velero Restore")
+			return reconcile.Result{}, nil
+		}
+		log.Info("Velero Restore UPDATED successfully")
+	} else {
+		log.Info("Velero Restore EXISTS already")
+	}
 
 	return reconcile.Result{}, nil
 }
