@@ -188,7 +188,7 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	err = remoteK8sClient.Get(context.TODO(), types.NamespacedName{Name: newRestore.Name, Namespace: newRestore.Namespace}, existingRestore)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			log.Error(info, "Velero Restore NOT FOUND, creating...")
+			log.Info("Velero Restore NOT FOUND, creating...")
 			// Send "Create" action for Velero Backup to K8s API
 			err = remoteK8sClient.Create(context.TODO(), newRestore)
 			if err != nil {
