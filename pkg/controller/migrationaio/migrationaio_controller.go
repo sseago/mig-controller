@@ -76,14 +76,16 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// 	return err
 	// }
 
-	// Watch for changes to Velero Backup
-	err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &handler.EnqueueRequestForObject{})
+	// Watch for changes to Velero Backup, enqueue request for MigrationAIO that owns
+	// err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &handler.EnqueueRequestForObject{})
+	err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &EnqueueRequestForAnnotation{Type: "MigrationAIO"})
 	if err != nil {
 		return err
 	}
 
-	// Watch for changes to Velro Restore
-	err = c.Watch(&source.Kind{Type: &velerov1.Restore{}}, &handler.EnqueueRequestForObject{})
+	// Watch for changes to Velero Restore
+	// err = c.Watch(&source.Kind{Type: &velerov1.Restore{}}, &handler.EnqueueRequestForObject{})
+	err = c.Watch(&source.Kind{Type: &velerov1.Restore{}}, &EnqueueRequestForAnnotation{Type: "MigrationAIO"})
 	if err != nil {
 		return err
 	}
@@ -145,6 +147,7 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Backup not found
+			newBackup = annotateBackupWithMigrationRef(newBackup, instance)
 			err = r.Create(context.TODO(), newBackup)
 			if err != nil {
 				log.Error(err, "Exit 3: Failed to CREATE Velero Backup")
@@ -160,6 +163,7 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	if !reflect.DeepEqual(existingBackup.Spec, newBackup.Spec) {
 		// Send "Create" action for Velero Backup to K8s API
 		existingBackup.Spec = newBackup.Spec
+		existingBackup = annotateBackupWithMigrationRef(existingBackup, instance)
 		err = r.Update(context.TODO(), existingBackup)
 		if err != nil {
 			log.Error(err, "Failed to UPDATE Velero Backup")
@@ -191,6 +195,7 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 		if errors.IsNotFound(err) {
 			log.Info("Velero Restore NOT FOUND, creating...")
 			// Send "Create" action for Velero Backup to K8s API
+			newRestore = annotateRestoreWithMigrationRef(newRestore, instance)
 			err = remoteK8sClient.Create(context.TODO(), newRestore)
 			if err != nil {
 				log.Error(err, "Failed to CREATE Velero Restore on remote cluster")
@@ -202,6 +207,7 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	}
 	if !reflect.DeepEqual(existingRestore.Spec, newRestore.Spec) {
 		existingRestore.Spec = newRestore.Spec
+		existingRestore = annotateRestoreWithMigrationRef(existingRestore, instance)
 		err = remoteK8sClient.Update(context.TODO(), existingRestore)
 		if err != nil {
 			log.Error(err, "Failed to UPDATE Velero Restore")
@@ -211,6 +217,13 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	} else {
 		log.Info("Velero Restore EXISTS already")
 	}
+
+	// TODO
+	//  - subscribe to watch events on Velero restores that we create
+	//  - subscribe to watch events on Velero backups that we create
+
+	// Mark BackupPhase from Velero Backup on MigrationAIO object
+	// Mark RestorePhase from Velero Restore on MigrationAIO object
 
 	return reconcile.Result{}, nil
 }

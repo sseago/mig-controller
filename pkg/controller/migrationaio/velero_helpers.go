@@ -17,8 +17,10 @@ limitations under the License.
 package migrationaio
 
 import (
+	"fmt"
 	"time"
 
+	migrationsv1alpha1 "github.com/fusor/mig-controller/pkg/apis/migrations/v1alpha1"
 	velerov1 "github.com/heptio/velero/pkg/apis/velero/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -73,4 +75,65 @@ func getVeleroRestore(ns string, name string, backupUniqueName string) *velerov1
 	}
 
 	return restore
+}
+
+// func annotateChildWithParentRef(childObject metav1.Object, parentObject metav1.Object, parentMeta metav1.TypeMeta) metav1.Object {
+// 	// from enqueue_annotation.go
+// 	// NamespacedNameAnnotation
+// 	// TypeAnnotation
+// 	// annotate with format namespace/name
+
+// 	// Get pieces needed to build annotation
+// 	parentNamespace := parentObject.GetNamespace()
+// 	parentName := parentObject.GetName()
+// 	parentKind := parentMeta.Kind // use GVK instead?
+
+// 	// Build namespaced name annotation string
+// 	nsName := fmt.Sprintf("%v/%v", parentNamespace, parentName)
+
+// 	// Get annotations from child object
+// 	childAnno := childObject.GetAnnotations()
+
+// 	// Modify child annotations to reference parent object
+// 	childAnno[NamespacedNameAnnotation] = nsName
+// 	childAnno[TypeAnnotation] = parentKind
+
+// 	// Set new parent reference back on child object
+// 	childObject.SetAnnotations(childAnno)
+
+// 	return childObject
+// }
+
+func annotateBackupWithMigrationRef(child *velerov1.Backup, parent *migrationsv1alpha1.MigrationAIO) *velerov1.Backup {
+	// Build namespaced name annotation string
+	parentNamespacedName := fmt.Sprintf("%v/%v", parent.Namespace, parent.Name)
+	parentKind := parent.TypeMeta.Kind
+
+	// Get and modify child annotations
+	annotations := child.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[NamespacedNameAnnotation] = parentNamespacedName
+	annotations[TypeAnnotation] = parentKind
+	child.SetAnnotations(annotations)
+
+	return child
+}
+
+func annotateRestoreWithMigrationRef(child *velerov1.Restore, parent *migrationsv1alpha1.MigrationAIO) *velerov1.Restore {
+	// Build namespaced name annotation string
+	parentNamespacedName := fmt.Sprintf("%v/%v", parent.Namespace, parent.Name)
+	parentKind := parent.TypeMeta.Kind
+
+	// Get and modify child annotations
+	annotations := child.GetAnnotations()
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[NamespacedNameAnnotation] = parentNamespacedName
+	annotations[TypeAnnotation] = parentKind
+	child.SetAnnotations(annotations)
+
+	return child
 }
