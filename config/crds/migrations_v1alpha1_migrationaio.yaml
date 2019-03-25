@@ -36,7 +36,13 @@ spec:
               items:
                 type: string
               type: array
+            srcClusterToken:
+              type: string
+            srcClusterURL:
+              type: string
           required:
+          - srcClusterURL
+          - srcClusterToken
           - destClusterURL
           - destClusterToken
           - migrationNamespaces

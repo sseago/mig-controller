@@ -28,6 +28,9 @@ type MigrationAIOSpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
+	SrcClusterURL   string `json:"srcClusterURL"`
+	SrcClusterToken string `json:"srcClusterToken"`
+
 	DestClusterURL   string `json:"destClusterURL"`
 	DestClusterToken string `json:"destClusterToken"`
 
