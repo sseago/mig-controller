@@ -186,7 +186,7 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 		return reconcile.Result{}, nil
 	}
 
-	newRestore := getVeleroRestore(veleroNs, instance.Name+"-restore", "nginx-backup")
+	newRestore := getVeleroRestore(veleroNs, instance.Name+"-restore", newBackup.Name)
 
 	// *** TODO - check if restore already exists before attempting to create
 	existingRestore := &velerov1.Restore{}
@@ -218,12 +218,13 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 		log.Info("Velero Restore EXISTS already")
 	}
 
-	// TODO
+	// DONE
 	//  - subscribe to watch events on Velero restores that we create
 	//  - subscribe to watch events on Velero backups that we create
 
-	// Mark BackupPhase from Velero Backup on MigrationAIO object
-	// Mark RestorePhase from Velero Restore on MigrationAIO object
+	// TODO
+	//  - Mark BackupPhase from Velero Backup on MigrationAIO object
+	//  - Mark RestorePhase from Velero Restore on MigrationAIO object
 
 	return reconcile.Result{}, nil
 }

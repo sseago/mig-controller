@@ -56,6 +56,12 @@ func getVeleroBackup(ns string, name string, backupNamespaces []string) *velerov
 			StorageLocation:    "default",
 			TTL:                metav1.Duration{Duration: 720 * time.Hour},
 			IncludedNamespaces: backupNamespaces,
+			// Unused but defaulted fields
+			ExcludedNamespaces:      []string{},
+			IncludedResources:       []string{},
+			ExcludedResources:       []string{},
+			Hooks:                   velerov1.BackupHooks{Resources: []velerov1.BackupResourceHookSpec{}},
+			VolumeSnapshotLocations: []string{},
 		},
 	}
 	return backup
