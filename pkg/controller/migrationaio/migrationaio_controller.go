@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -131,11 +130,20 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	// ################################################
 	// # Create a Velero 'Backup' on the source cluster
 	// ################################################
+	srcClusterToken := instance.Spec.SrcClusterToken
+	srcClusterURL := instance.Spec.SrcClusterURL
+
+	srcClusterK8sClient, err := getControllerRuntimeClient(srcClusterURL, srcClusterToken)
+	if err != nil {
+		log.Error(err, "Failed to GET srcClusterK8sClient")
+		return reconcile.Result{}, nil
+	}
+
 	nsToBackup := instance.Spec.MigrationNamespaces
 	newBackup := getVeleroBackup(veleroNs, instance.Name+"-backup", nsToBackup)
 
 	// Set controller reference on 'Backup' object so that we can watch it
-	err = controllerutil.SetControllerReference(instance, newBackup, r.scheme)
+	// err = controllerutil.SetControllerReference(instance, newBackup, r.scheme)
 	if err != nil {
 		log.Error(err, "SetControllerReference fail on newBackup")
 		return reconcile.Result{}, err
@@ -143,12 +151,12 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 
 	// Check if a 'Backup' resource already exists
 	existingBackup := &velerov1.Backup{}
-	err = r.Get(context.TODO(), types.NamespacedName{Name: newBackup.Name, Namespace: newBackup.Namespace}, existingBackup)
+	err = srcClusterK8sClient.Get(context.TODO(), types.NamespacedName{Name: newBackup.Name, Namespace: newBackup.Namespace}, existingBackup)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Backup not found
 			newBackup = annotateBackupWithMigrationRef(newBackup, instance)
-			err = r.Create(context.TODO(), newBackup)
+			err = srcClusterK8sClient.Create(context.TODO(), newBackup)
 			if err != nil {
 				log.Error(err, "Exit 3: Failed to CREATE Velero Backup")
 				return reconcile.Result{}, nil
@@ -164,7 +172,7 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 		// Send "Create" action for Velero Backup to K8s API
 		existingBackup.Spec = newBackup.Spec
 		existingBackup = annotateBackupWithMigrationRef(existingBackup, instance)
-		err = r.Update(context.TODO(), existingBackup)
+		err = srcClusterK8sClient.Update(context.TODO(), existingBackup)
 		if err != nil {
 			log.Error(err, "Failed to UPDATE Velero Backup")
 			return reconcile.Result{}, nil
@@ -180,9 +188,9 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	destClusterURL := instance.Spec.DestClusterURL
 	destClusterToken := instance.Spec.DestClusterToken
 
-	remoteK8sClient, err := getControllerRuntimeClient(destClusterURL, destClusterToken)
+	destClusterK8sClient, err := getControllerRuntimeClient(destClusterURL, destClusterToken)
 	if err != nil {
-		log.Error(err, "Failed to GET remoteK8sClient")
+		log.Error(err, "Failed to GET destClusterK8sClient")
 		return reconcile.Result{}, nil
 	}
 
@@ -190,13 +198,13 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 
 	// *** TODO - check if restore already exists before attempting to create
 	existingRestore := &velerov1.Restore{}
-	err = remoteK8sClient.Get(context.TODO(), types.NamespacedName{Name: newRestore.Name, Namespace: newRestore.Namespace}, existingRestore)
+	err = destClusterK8sClient.Get(context.TODO(), types.NamespacedName{Name: newRestore.Name, Namespace: newRestore.Namespace}, existingRestore)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			log.Info("Velero Restore NOT FOUND, creating...")
 			// Send "Create" action for Velero Backup to K8s API
 			newRestore = annotateRestoreWithMigrationRef(newRestore, instance)
-			err = remoteK8sClient.Create(context.TODO(), newRestore)
+			err = destClusterK8sClient.Create(context.TODO(), newRestore)
 			if err != nil {
 				log.Error(err, "Failed to CREATE Velero Restore on remote cluster")
 				return reconcile.Result{}, nil
@@ -208,7 +216,7 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	if !reflect.DeepEqual(existingRestore.Spec, newRestore.Spec) {
 		existingRestore.Spec = newRestore.Spec
 		existingRestore = annotateRestoreWithMigrationRef(existingRestore, instance)
-		err = remoteK8sClient.Update(context.TODO(), existingRestore)
+		err = destClusterK8sClient.Update(context.TODO(), existingRestore)
 		if err != nil {
 			log.Error(err, "Failed to UPDATE Velero Restore")
 			return reconcile.Result{}, nil
