@@ -18,6 +18,7 @@ package migrationaio
 
 import (
 	"context"
+	"os"
 	"reflect"
 
 	migrationsv1alpha1 "github.com/fusor/mig-controller/pkg/apis/migrations/v1alpha1"
@@ -25,12 +26,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
+	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
@@ -98,6 +101,28 @@ var _ reconcile.Reconciler = &ReconcileMigrationAIO{}
 type ReconcileMigrationAIO struct {
 	client.Client
 	scheme *runtime.Scheme
+}
+
+func setupRemoteWatcherManager(cfg *rest.Config, scheme *runtime.Scheme) {
+	mgr, err := manager.New(cfg, manager.Options{})
+	if err != nil {
+		log.Error(err, "<RemoteWatcher> *** ERROR *** unable to set up remote watcher controller manager")
+		os.Exit(1)
+	}
+
+	log.Info("<RemoteWatcher> Adding Velero to scheme...")
+	if err := velerov1.AddToScheme(mgr.GetScheme()); err != nil {
+		log.Error(err, "unable add Velero APIs to scheme")
+		os.Exit(1)
+	}
+
+	log.Info("<RemoteWatcher> Starting manager...")
+	// Swapping out signals.SetupSignalHandler for something else should
+	// provide a way to stop the manager on demand. mgr.Start takes "<-chan struct{}" as a param.
+	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+		log.Error(err, "unable to start the manager")
+		os.Exit(1)
+	}
 }
 
 // Reconcile reads that state of the cluster for a MigrationAIO object and makes changes based on the state read
