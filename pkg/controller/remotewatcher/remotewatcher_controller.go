@@ -37,13 +37,20 @@ var log = logf.Log.WithName("controller")
 
 // Add creates a new RemoteWatcher Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
-func Add(mgr manager.Manager) error {
-	return add(mgr, newReconciler(mgr))
+// func Add(mgr manager.Manager) error {
+// 	return add(mgr, newReconciler(mgr))
+// }
+// Add creates a new RemoteWatcher Controller with a source.Channel that will be fed to a reconciler
+func Add(mgr manager.Manager, forwardChannel source.Channel) error {
+	return add(mgr, newReconciler(mgr, forwardChannel))
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	return &ReconcileRemoteWatcher{Client: mgr.GetClient(), scheme: mgr.GetScheme()}
+// func newReconciler(mgr manager.Manager) reconcile.Reconciler {
+// 	return &ReconcileRemoteWatcher{Client: mgr.GetClient(), scheme: mgr.GetScheme()}
+// }
+func newReconciler(mgr manager.Manager, forwardChannel source.Channel) reconcile.Reconciler {
+	return &ReconcileRemoteWatcher{Client: mgr.GetClient(), scheme: mgr.GetScheme(), forwardChannel: forwardChannel}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
@@ -54,12 +61,6 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
-	// Watch for changes to RemoteWatcher
-	// err = c.Watch(&source.Kind{Type: &migrationsv1alpha1.RemoteWatcher{}}, &handler.EnqueueRequestForObject{})
-	// if err != nil {
-	// 	return err
-	// }
-
 	err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &handler.EnqueueRequestForObject{})
 	if err != nil {
 		return err
@@ -69,6 +70,12 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	if err != nil {
 		return err
 	}
+
+	// Watch for changes to RemoteWatcher
+	// err = c.Watch(&source.Kind{Type: &migrationsv1alpha1.RemoteWatcher{}}, &handler.EnqueueRequestForObject{})
+	// if err != nil {
+	// 	return err
+	// }
 
 	// TODO(user): Modify this to be the types you create
 	// Uncomment watch a Deployment created by RemoteWatcher - change this for objects you create
@@ -88,7 +95,8 @@ var _ reconcile.Reconciler = &ReconcileRemoteWatcher{}
 // ReconcileRemoteWatcher reconciles a RemoteWatcher object
 type ReconcileRemoteWatcher struct {
 	client.Client
-	scheme *runtime.Scheme
+	scheme         *runtime.Scheme
+	forwardChannel source.Channel
 }
 
 // Reconcile reads that state of the cluster for a RemoteWatcher object and makes changes based on the state read
@@ -101,6 +109,7 @@ func (r *ReconcileRemoteWatcher) Reconcile(request reconcile.Request) (reconcile
 	// Fetch the RemoteWatcher instance
 	log.Info("*** REMOTEWATCHER LOOP TRIGGER *** | [namespace]: " + request.Namespace + " | [name]: " + request.Name)
 
+	forwardReconcileRequest(request, r.forwardChannel)
 	// instance := &migrationsv1alpha1.RemoteWatcher{}
 	// err := r.Get(context.TODO(), request.NamespacedName, instance)
 	// if err != nil {

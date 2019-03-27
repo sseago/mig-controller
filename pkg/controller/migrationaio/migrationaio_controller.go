@@ -22,6 +22,7 @@ import (
 	"reflect"
 
 	migrationsv1alpha1 "github.com/fusor/mig-controller/pkg/apis/migrations/v1alpha1"
+	"github.com/fusor/mig-controller/pkg/controller/remotewatcher"
 	velerov1 "github.com/heptio/velero/pkg/apis/velero/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -103,7 +104,7 @@ type ReconcileMigrationAIO struct {
 	scheme *runtime.Scheme
 }
 
-func setupRemoteWatcherManager(cfg *rest.Config, scheme *runtime.Scheme) {
+func setupRemoteWatcherManager(cfg *rest.Config, r *ReconcileMigrationAIO, scheme *runtime.Scheme) {
 	mgr, err := manager.New(cfg, manager.Options{})
 	if err != nil {
 		log.Error(err, "<RemoteWatcher> *** ERROR *** unable to set up remote watcher controller manager")
@@ -115,6 +116,12 @@ func setupRemoteWatcherManager(cfg *rest.Config, scheme *runtime.Scheme) {
 		log.Error(err, "unable add Velero APIs to scheme")
 		os.Exit(1)
 	}
+
+	// Add remoteWatcher to MGR
+	log.Info("<RemoteWatcher> Adding controller to manager...")
+	forwardChannel := source.Channel{}
+	// forwardChannel.Start()
+	remotewatcher.Add(mgr, forwardChannel)
 
 	log.Info("<RemoteWatcher> Starting manager...")
 	// Swapping out signals.SetupSignalHandler for something else should
