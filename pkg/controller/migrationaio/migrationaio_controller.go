@@ -30,6 +30,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -52,42 +53,32 @@ func Add(mgr manager.Manager) error {
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager) reconcile.Reconciler {
+func newReconciler(mgr manager.Manager) ReconcileMigrationAIO {
 	return &ReconcileMigrationAIO{Client: mgr.GetClient(), scheme: mgr.GetScheme()}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
-func add(mgr manager.Manager, r reconcile.Reconciler) error {
+func add(mgr manager.Manager, r ReconcileMigrationAIO) error {
 	// Create a new controller
 	c, err := controller.New("migrationaio-controller", mgr, controller.Options{Reconciler: r})
 	if err != nil {
 		return err
 	}
 
+	// Set reference to controller on ReconcileMigrationAIO object
+	r.Controller = c
+
 	// Watch for changes to MigrationAIO
 	err = c.Watch(&source.Kind{Type: &migrationsv1alpha1.MigrationAIO{}}, &handler.EnqueueRequestForObject{})
 	if err != nil {
 		return err
 	}
-
-	// // Uncomment watch a Velero Backup created by MigrationAIO - change this for objects you create
-	// err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &handler.EnqueueRequestForOwner{
-	// 	IsController: true,
-	// 	OwnerType:    &migrationsv1alpha1.MigrationAIO{},
-	// })
-	// if err != nil {
-	// 	return err
-	// }
-
 	// Watch for changes to Velero Backup, enqueue request for MigrationAIO that owns
-	// err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &handler.EnqueueRequestForObject{})
 	err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &EnqueueRequestForAnnotation{Type: "MigrationAIO"})
 	if err != nil {
 		return err
 	}
-
 	// Watch for changes to Velero Restore
-	// err = c.Watch(&source.Kind{Type: &velerov1.Restore{}}, &handler.EnqueueRequestForObject{})
 	err = c.Watch(&source.Kind{Type: &velerov1.Restore{}}, &EnqueueRequestForAnnotation{Type: "MigrationAIO"})
 	if err != nil {
 		return err
@@ -102,12 +93,37 @@ var _ reconcile.Reconciler = &ReconcileMigrationAIO{}
 type ReconcileMigrationAIO struct {
 	client.Client
 	scheme *runtime.Scheme
+	// maps namespaced names (parent resource) to ForwardChannel and Manager
+	NamespacedNameToRemoteCluster map[types.NamespacedName]*RemoteWatchCluster
+	Controller                    controller.Controller
+
+	//  TODO - setup stop channel for manager so that manager will stop when
+	//  we close the event channel from parent
+
 }
 
-func setupRemoteWatcherManager(cfg *rest.Config, r *ReconcileMigrationAIO, scheme *runtime.Scheme) {
-	mgr, err := manager.New(cfg, manager.Options{})
+// RemoteWatchCluster is used to keep track of Remote Managers and ForwardChannels
+type RemoteWatchCluster struct {
+	ForwardChannel chan event.GenericEvent
+	RemoteManager  manager.Manager
+}
+
+type remoteManagerConfig struct {
+	// rest.Config for remote cluster
+	restConfig *rest.Config
+	// runtime.Scheme to be added to child manager
+	scheme *runtime.Scheme
+	// nsname used in mapping local resources to remote managers
+	parentNsName types.NamespacedName
+	// MigrationAIO object containing v1.Object and runtime.Object needed for remote cluster to properly forward events
+	parentResource *migrationsv1alpha1.MigrationAIO
+}
+
+func setupRemoteWatcherManager(r *ReconcileMigrationAIO, config remoteManagerConfig) error {
+
+	mgr, err := manager.New(config.restConfig, manager.Options{})
 	if err != nil {
-		log.Error(err, "<RemoteWatcher> *** ERROR *** unable to set up remote watcher controller manager")
+		log.Error(err, "<RemoteWatcher> unable to set up remote watcher controller manager")
 		os.Exit(1)
 	}
 
@@ -117,11 +133,21 @@ func setupRemoteWatcherManager(cfg *rest.Config, r *ReconcileMigrationAIO, schem
 		os.Exit(1)
 	}
 
-	// Add remoteWatcher to MGR
+	// Parent controller watches for events from forwardChannel.
+	forwardChannel := make(chan event.GenericEvent)
+	// forwardChannel.Start() ??
+	r.Controller.Watch(&source.Channel{Source: forwardChannel}, &handler.EnqueueRequestForObject{})
+	if err != nil {
+		return err
+	}
+
+	// Add remoteWatcher to remote MGR
 	log.Info("<RemoteWatcher> Adding controller to manager...")
-	forwardChannel := source.Channel{}
-	// forwardChannel.Start()
-	remotewatcher.Add(mgr, forwardChannel)
+	forwardEvent := event.GenericEvent{
+		Meta:   config.parentResource.GetObjectMeta(),
+		Object: config.parentResource,
+	}
+	remotewatcher.Add(mgr, forwardChannel, forwardEvent)
 
 	log.Info("<RemoteWatcher> Starting manager...")
 	// Swapping out signals.SetupSignalHandler for something else should
@@ -130,6 +156,12 @@ func setupRemoteWatcherManager(cfg *rest.Config, r *ReconcileMigrationAIO, schem
 		log.Error(err, "unable to start the manager")
 		os.Exit(1)
 	}
+
+	// Create remoteWatchCluster tracking obj and attach reference to parent object so we don't create extra
+	remoteWatchCluster := &RemoteWatchCluster{ForwardChannel: forwardChannel, RemoteManager: mgr}
+	r.NamespacedNameToRemoteCluster[config.parentNsName] = remoteWatchCluster
+
+	return nil
 }
 
 // Reconcile reads that state of the cluster for a MigrationAIO object and makes changes based on the state read

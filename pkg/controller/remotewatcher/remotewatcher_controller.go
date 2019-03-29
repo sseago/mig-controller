@@ -21,6 +21,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -30,63 +31,30 @@ import (
 
 var log = logf.Log.WithName("controller")
 
-/**
-* USER ACTION REQUIRED: This is a scaffold file intended for the user to modify with their own Controller
-* business logic.  Delete these comments after modifying this file.*
- */
-
-// Add creates a new RemoteWatcher Controller and adds it to the Manager with default RBAC. The Manager will set fields on the Controller
-// and Start it when the Manager is Started.
-// func Add(mgr manager.Manager) error {
-// 	return add(mgr, newReconciler(mgr))
-// }
-// Add creates a new RemoteWatcher Controller with a source.Channel that will be fed to a reconciler
-func Add(mgr manager.Manager, forwardChannel source.Channel) error {
-	return add(mgr, newReconciler(mgr, forwardChannel))
+// Add creates a new RemoteWatcher Controller with a forwardChannel
+func Add(mgr manager.Manager, forwardChannel chan event.GenericEvent, fowardEvent event.GenericEvent) error {
+	return add(mgr, newReconciler(mgr, forwardChannel, fowardEvent))
 }
 
 // newReconciler returns a new reconcile.Reconciler
-// func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-// 	return &ReconcileRemoteWatcher{Client: mgr.GetClient(), scheme: mgr.GetScheme()}
-// }
-func newReconciler(mgr manager.Manager, forwardChannel source.Channel) reconcile.Reconciler {
-	return &ReconcileRemoteWatcher{Client: mgr.GetClient(), scheme: mgr.GetScheme(), forwardChannel: forwardChannel}
+func newReconciler(mgr manager.Manager, forwardChannel chan event.GenericEvent, forwardEvent event.GenericEvent) reconcile.Reconciler {
+	return &ReconcileRemoteWatcher{Client: mgr.GetClient(), scheme: mgr.GetScheme(), ForwardChannel: forwardChannel, ForwardEvent: forwardEvent}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
-	// Create a new controller
 	c, err := controller.New("remotewatcher-controller", mgr, controller.Options{Reconciler: r})
 	if err != nil {
 		return err
 	}
-
 	err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &handler.EnqueueRequestForObject{})
 	if err != nil {
 		return err
 	}
-
 	err = c.Watch(&source.Kind{Type: &velerov1.Restore{}}, &handler.EnqueueRequestForObject{})
 	if err != nil {
 		return err
 	}
-
-	// Watch for changes to RemoteWatcher
-	// err = c.Watch(&source.Kind{Type: &migrationsv1alpha1.RemoteWatcher{}}, &handler.EnqueueRequestForObject{})
-	// if err != nil {
-	// 	return err
-	// }
-
-	// TODO(user): Modify this to be the types you create
-	// Uncomment watch a Deployment created by RemoteWatcher - change this for objects you create
-	// err = c.Watch(&source.Kind{Type: &appsv1.Deployment{}}, &handler.EnqueueRequestForOwner{
-	// 	IsController: true,
-	// 	OwnerType:    &migrationsv1alpha1.RemoteWatcher{},
-	// })
-	// if err != nil {
-	// 	return err
-	// }
-
 	return nil
 }
 
@@ -95,32 +63,21 @@ var _ reconcile.Reconciler = &ReconcileRemoteWatcher{}
 // ReconcileRemoteWatcher reconciles a RemoteWatcher object
 type ReconcileRemoteWatcher struct {
 	client.Client
-	scheme         *runtime.Scheme
-	forwardChannel source.Channel
+	scheme *runtime.Scheme
+	// channel to forward GenericEvents to
+	ForwardChannel chan event.GenericEvent
+	// GenericEvent to forward over channel
+	ForwardEvent event.GenericEvent
 }
 
-// Reconcile reads that state of the cluster for a RemoteWatcher object and makes changes based on the state read
-// and what is in the RemoteWatcher.Spec
-// TODO(user): Modify this Reconcile function to implement your Controller logic.  The scaffolding writes
-// a Deployment as an example
+// Reconcile reads that state of the cluster for a RemoteWatcher object and makes changes
 // +kubebuilder:rbac:groups=migrations.openshift.io,resources=remotewatchers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=migrations.openshift.io,resources=remotewatchers/status,verbs=get;update;patch
 func (r *ReconcileRemoteWatcher) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	// Fetch the RemoteWatcher instance
 	log.Info("*** REMOTEWATCHER LOOP TRIGGER *** | [namespace]: " + request.Namespace + " | [name]: " + request.Name)
 
-	forwardReconcileRequest(request, r.forwardChannel)
-	// instance := &migrationsv1alpha1.RemoteWatcher{}
-	// err := r.Get(context.TODO(), request.NamespacedName, instance)
-	// if err != nil {
-	// 	if errors.IsNotFound(err) {
-	// 		// Object not found, return.  Created objects are automatically garbage collected.
-	// 		// For additional cleanup logic use finalizers.
-	// 		return reconcile.Result{}, nil
-	// 	}
-	// 	// Error reading the object - requeue the request.
-	// 	return reconcile.Result{}, err
-	// }
+	// Forward a known Event back to the parent controller
+	r.ForwardChannel <- r.ForwardEvent
 
 	return reconcile.Result{}, nil
 }
