@@ -37,14 +37,11 @@ func buildRestConfig(clusterURL string, bearerToken string) *rest.Config {
 	return clusterConfig
 }
 
-func getControllerRuntimeClient(clusterURL string, bearerToken string) (c client.Client, err error) {
-	clusterConfig := buildRestConfig(clusterURL, bearerToken)
-
-	c, err = client.New(clusterConfig, client.Options{Scheme: scheme.Scheme})
+func getControllerRuntimeClient(config *rest.Config) (c client.Client, err error) {
+	c, err = client.New(config, client.Options{Scheme: scheme.Scheme})
 	if err != nil {
 		return nil, err
 	}
-
 	return c, nil
 }
 
@@ -62,10 +59,10 @@ func getVeleroBackup(ns string, name string, backupNamespaces []string) *velerov
 			TTL:                metav1.Duration{Duration: 720 * time.Hour},
 			IncludedNamespaces: backupNamespaces,
 			// Unused but defaulted fields
-			ExcludedNamespaces: []string{},
-			IncludedResources:  []string{},
-			ExcludedResources:  []string{},
-			Hooks:              velerov1.BackupHooks{Resources: []velerov1.BackupResourceHookSpec{}},
+			ExcludedNamespaces:      []string{},
+			IncludedResources:       []string{},
+			ExcludedResources:       []string{},
+			Hooks:                   velerov1.BackupHooks{Resources: []velerov1.BackupResourceHookSpec{}},
 			VolumeSnapshotLocations: []string{},
 		},
 	}

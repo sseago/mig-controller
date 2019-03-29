@@ -53,12 +53,12 @@ func Add(mgr manager.Manager) error {
 }
 
 // newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager) ReconcileMigrationAIO {
+func newReconciler(mgr manager.Manager) *ReconcileMigrationAIO {
 	return &ReconcileMigrationAIO{Client: mgr.GetClient(), scheme: mgr.GetScheme()}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
-func add(mgr manager.Manager, r ReconcileMigrationAIO) error {
+func add(mgr manager.Manager, r *ReconcileMigrationAIO) error {
 	// Create a new controller
 	c, err := controller.New("migrationaio-controller", mgr, controller.Options{Reconciler: r})
 	if err != nil {
@@ -110,9 +110,9 @@ type RemoteWatchCluster struct {
 
 type remoteManagerConfig struct {
 	// rest.Config for remote cluster
-	restConfig *rest.Config
+	remoteRestConfig *rest.Config
 	// runtime.Scheme to be added to child manager
-	scheme *runtime.Scheme
+	// scheme *runtime.Scheme
 	// nsname used in mapping local resources to remote managers
 	parentNsName types.NamespacedName
 	// MigrationAIO object containing v1.Object and runtime.Object needed for remote cluster to properly forward events
@@ -121,7 +121,7 @@ type remoteManagerConfig struct {
 
 func setupRemoteWatcherManager(r *ReconcileMigrationAIO, config remoteManagerConfig) error {
 
-	mgr, err := manager.New(config.restConfig, manager.Options{})
+	mgr, err := manager.New(config.remoteRestConfig, manager.Options{})
 	if err != nil {
 		log.Error(err, "<RemoteWatcher> unable to set up remote watcher controller manager")
 		os.Exit(1)
@@ -134,8 +134,11 @@ func setupRemoteWatcherManager(r *ReconcileMigrationAIO, config remoteManagerCon
 	}
 
 	// Parent controller watches for events from forwardChannel.
+	log.Info("<RemoteWatcher> Creating forwardChannel...")
 	forwardChannel := make(chan event.GenericEvent)
 	// forwardChannel.Start() ??
+
+	log.Info("<RemoteWatcher> Starting watch on forwardChannel...")
 	r.Controller.Watch(&source.Channel{Source: forwardChannel}, &handler.EnqueueRequestForObject{})
 	if err != nil {
 		return err
@@ -196,8 +199,15 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	// ################################################
 	srcClusterToken := instance.Spec.SrcClusterToken
 	srcClusterURL := instance.Spec.SrcClusterURL
+	srcClusterRestConfig := buildRestConfig(srcClusterURL, srcClusterToken)
+	srcClusterK8sClient, err := getControllerRuntimeClient(srcClusterRestConfig)
 
-	srcClusterK8sClient, err := getControllerRuntimeClient(srcClusterURL, srcClusterToken)
+	setupRemoteWatcherManager(r, remoteManagerConfig{
+		remoteRestConfig: srcClusterRestConfig,
+		parentNsName:     request.NamespacedName,
+		parentResource:   instance,
+	})
+
 	if err != nil {
 		log.Error(err, "Failed to GET srcClusterK8sClient")
 		return reconcile.Result{}, nil
@@ -226,6 +236,7 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 				return reconcile.Result{}, nil
 			}
 			log.Info("Velero Backup CREATED successfully")
+			// Now start watching remote cluster
 		}
 		// Error reading the 'Backup' object - requeue the request.
 		log.Error(err, "Exit 4: Requeueing")
@@ -251,12 +262,18 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	// ######################################################
 	destClusterURL := instance.Spec.DestClusterURL
 	destClusterToken := instance.Spec.DestClusterToken
-
-	destClusterK8sClient, err := getControllerRuntimeClient(destClusterURL, destClusterToken)
+	destClusterRestConfig := buildRestConfig(destClusterURL, destClusterToken)
+	destClusterK8sClient, err := getControllerRuntimeClient(destClusterRestConfig)
 	if err != nil {
 		log.Error(err, "Failed to GET destClusterK8sClient")
 		return reconcile.Result{}, nil
 	}
+
+	setupRemoteWatcherManager(r, remoteManagerConfig{
+		remoteRestConfig: destClusterRestConfig,
+		parentNsName:     request.NamespacedName,
+		parentResource:   instance,
+	})
 
 	newRestore := getVeleroRestore(veleroNs, instance.Name+"-restore", newBackup.Name)
 
