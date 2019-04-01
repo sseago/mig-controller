@@ -126,7 +126,6 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 // Start implements controller.Controller
 func (c *Controller) Start(stop <-chan struct{}) error {
 	c.mu.Lock()
-	// defer c.mu.Unlock()
 
 	// TODO(pwittrock): Reconsider HandleCrash
 	defer utilruntime.HandleCrash()
@@ -144,6 +143,7 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 		// Leaving it here because that could happen in the future
 		err := fmt.Errorf("failed to wait for %s caches to sync", c.Name)
 		log.Error(err, "Could not wait for Cache to sync", "Controller", c.Name)
+		c.mu.Unlock()
 		return err
 	}
 
@@ -162,6 +162,7 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 	}
 	// log.Info("[c.Start] CONTROLLER STARTED")
 	c.Started = true
+	c.mu.Unlock()
 	// log.Info("[c.Start] UNLOCKING")
 	// c.mu.Unlock()
 	// log.Info("[c.Start] UNLOCKED")
