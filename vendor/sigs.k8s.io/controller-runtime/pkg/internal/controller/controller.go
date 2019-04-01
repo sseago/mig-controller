@@ -101,7 +101,9 @@ func (c *Controller) Reconcile(r reconcile.Request) (reconcile.Result, error) {
 
 // Watch implements controller.Controller
 func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prct ...predicate.Predicate) error {
+	log.Info("[c.Watch] LOCK REQUEST")
 	c.mu.Lock()
+	log.Info("[c.Watch] LOCK ACQUIRED")
 	defer c.mu.Unlock()
 
 	// Inject Cache into arguments
@@ -124,7 +126,7 @@ func (c *Controller) Watch(src source.Source, evthdler handler.EventHandler, prc
 // Start implements controller.Controller
 func (c *Controller) Start(stop <-chan struct{}) error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
+	// defer c.mu.Unlock()
 
 	// TODO(pwittrock): Reconsider HandleCrash
 	defer utilruntime.HandleCrash()
@@ -158,8 +160,11 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 			}
 		}, c.JitterPeriod, stop)
 	}
-
+	log.Info("[c.Start] CONTROLLER STARTED")
 	c.Started = true
+	log.Info("[c.Start] UNLOCKING")
+	c.mu.Unlock()
+	log.Info("[c.Start] UNLOCKED")
 
 	<-stop
 	log.Info("Stopping workers", "Controller", c.Name)

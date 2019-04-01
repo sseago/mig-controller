@@ -96,16 +96,14 @@ type ReconcileMigrationAIO struct {
 	// maps namespaced names (parent resource) to ForwardChannel and Manager
 	NamespacedNameToRemoteCluster map[types.NamespacedName]*RemoteWatchCluster
 	Controller                    controller.Controller
-
-	//  TODO - setup stop channel for manager so that manager will stop when
-	//  we close the event channel from parent
-
 }
 
 // RemoteWatchCluster is used to keep track of Remote Managers and ForwardChannels
 type RemoteWatchCluster struct {
 	ForwardChannel chan event.GenericEvent
 	RemoteManager  manager.Manager
+	//  TODO - setup stop channel for manager so that manager will stop when
+	//  we close the event channel from parent
 }
 
 type remoteManagerConfig struct {
@@ -136,10 +134,9 @@ func setupRemoteWatcherManager(r *ReconcileMigrationAIO, config remoteManagerCon
 	// Parent controller watches for events from forwardChannel.
 	log.Info("<RemoteWatcher> Creating forwardChannel...")
 	forwardChannel := make(chan event.GenericEvent)
-	// forwardChannel.Start() ??
 
 	log.Info("<RemoteWatcher> Starting watch on forwardChannel...")
-	r.Controller.Watch(&source.Channel{Source: forwardChannel}, &handler.EnqueueRequestForObject{})
+	err = r.Controller.Watch(&source.Channel{Source: forwardChannel}, &handler.EnqueueRequestForObject{})
 	if err != nil {
 		return err
 	}
@@ -150,7 +147,11 @@ func setupRemoteWatcherManager(r *ReconcileMigrationAIO, config remoteManagerCon
 		Meta:   config.parentResource.GetObjectMeta(),
 		Object: config.parentResource,
 	}
-	remotewatcher.Add(mgr, forwardChannel, forwardEvent)
+	err = remotewatcher.Add(mgr, forwardChannel, forwardEvent)
+	if err != nil {
+		log.Info("<RemoteWatcher> Error adding remotewatcher")
+		return err
+	}
 
 	log.Info("<RemoteWatcher> Starting manager...")
 	// Swapping out signals.SetupSignalHandler for something else should
