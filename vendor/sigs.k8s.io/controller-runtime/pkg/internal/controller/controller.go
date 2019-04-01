@@ -160,11 +160,11 @@ func (c *Controller) Start(stop <-chan struct{}) error {
 			}
 		}, c.JitterPeriod, stop)
 	}
-	log.Info("[c.Start] CONTROLLER STARTED")
+	// log.Info("[c.Start] CONTROLLER STARTED")
 	c.Started = true
-	log.Info("[c.Start] UNLOCKING")
-	c.mu.Unlock()
-	log.Info("[c.Start] UNLOCKED")
+	// log.Info("[c.Start] UNLOCKING")
+	// c.mu.Unlock()
+	// log.Info("[c.Start] UNLOCKED")
 
 	<-stop
 	log.Info("Stopping workers", "Controller", c.Name)
