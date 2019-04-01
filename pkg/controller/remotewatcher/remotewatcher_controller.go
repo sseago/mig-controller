@@ -74,7 +74,7 @@ type ReconcileRemoteWatcher struct {
 // +kubebuilder:rbac:groups=migrations.openshift.io,resources=remotewatchers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=migrations.openshift.io,resources=remotewatchers/status,verbs=get;update;patch
 func (r *ReconcileRemoteWatcher) Reconcile(request reconcile.Request) (reconcile.Result, error) {
-	log.Info("*** REMOTEWATCHER LOOP TRIGGER *** | [namespace]: " + request.Namespace + " | [name]: " + request.Name)
+	log.Info(">>> REMOTEWATCHER LOOP TRIGGER <<< | [namespace]: " + request.Namespace + " | [name]: " + request.Name)
 
 	// Forward a known Event back to the parent controller
 	r.ForwardChannel <- r.ForwardEvent

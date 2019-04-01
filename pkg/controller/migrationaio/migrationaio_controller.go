@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	logf "sigs.k8s.io/controller-runtime/pkg/runtime/log"
-	"sigs.k8s.io/controller-runtime/pkg/runtime/signals"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
 
@@ -65,6 +64,9 @@ func add(mgr manager.Manager, r *ReconcileMigrationAIO) error {
 		return err
 	}
 
+	// Initialize map from nsName to remote watch cluster
+	r.NsNameToRemoteCluster = make(map[types.NamespacedName]*RemoteWatchCluster)
+
 	// Set reference to controller on ReconcileMigrationAIO object
 	r.Controller = c
 
@@ -74,15 +76,15 @@ func add(mgr manager.Manager, r *ReconcileMigrationAIO) error {
 		return err
 	}
 	// Watch for changes to Velero Backup, enqueue request for MigrationAIO that owns
-	err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &EnqueueRequestForAnnotation{Type: "MigrationAIO"})
-	if err != nil {
-		return err
-	}
+	// err = c.Watch(&source.Kind{Type: &velerov1.Backup{}}, &EnqueueRequestForAnnotation{Type: "MigrationAIO"})
+	// if err != nil {
+	// 	return err
+	// }
 	// Watch for changes to Velero Restore
-	err = c.Watch(&source.Kind{Type: &velerov1.Restore{}}, &EnqueueRequestForAnnotation{Type: "MigrationAIO"})
-	if err != nil {
-		return err
-	}
+	// err = c.Watch(&source.Kind{Type: &velerov1.Restore{}}, &EnqueueRequestForAnnotation{Type: "MigrationAIO"})
+	// if err != nil {
+	// 	return err
+	// }
 
 	return nil
 }
@@ -94,8 +96,8 @@ type ReconcileMigrationAIO struct {
 	client.Client
 	scheme *runtime.Scheme
 	// maps namespaced names (parent resource) to ForwardChannel and Manager
-	NamespacedNameToRemoteCluster map[types.NamespacedName]*RemoteWatchCluster
-	Controller                    controller.Controller
+	NsNameToRemoteCluster map[types.NamespacedName]*RemoteWatchCluster
+	Controller            controller.Controller
 }
 
 // RemoteWatchCluster is used to keep track of Remote Managers and ForwardChannels
@@ -117,7 +119,8 @@ type remoteManagerConfig struct {
 	parentResource *migrationsv1alpha1.MigrationAIO
 }
 
-func setupRemoteWatcherManager(r *ReconcileMigrationAIO, config remoteManagerConfig) error {
+// func setupRemoteWatcherManager(r *ReconcileMigrationAIO, config remoteManagerConfig) error {
+func setupRemoteWatcherManager(r *ReconcileMigrationAIO, config remoteManagerConfig, watchKey string) error {
 
 	mgr, err := manager.New(config.remoteRestConfig, manager.Options{})
 	if err != nil {
@@ -156,14 +159,24 @@ func setupRemoteWatcherManager(r *ReconcileMigrationAIO, config remoteManagerCon
 	log.Info("<RemoteWatcher> Starting manager...")
 	// Swapping out signals.SetupSignalHandler for something else should
 	// provide a way to stop the manager on demand. mgr.Start takes "<-chan struct{}" as a param.
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
-		log.Error(err, "unable to start the manager")
-		os.Exit(1)
-	}
+	// if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+	// 	log.Error(err, "unable to start the manager")
+	// 	os.Exit(1)
+	// }
 
+	// create unstructured stop chan
+	sigStopChan := make(chan struct{})
+	go mgr.Start(sigStopChan)
+
+	log.Info("<RemoteWatcher> Manager started!")
 	// Create remoteWatchCluster tracking obj and attach reference to parent object so we don't create extra
 	remoteWatchCluster := &RemoteWatchCluster{ForwardChannel: forwardChannel, RemoteManager: mgr}
-	r.NamespacedNameToRemoteCluster[config.parentNsName] = remoteWatchCluster
+
+	// Temporarily tracking remoteWatchClusters using watchKey instead of parentNsName to faciliate POC design
+	r.NsNameToRemoteCluster[types.NamespacedName{Name: watchKey, Namespace: watchKey}] = remoteWatchCluster
+	// r.NsNameToRemoteCluster[config.parentNsName] = remoteWatchCluster
+
+	log.Info("<RemoteWatcher> Added mapping from nsName to remoteWatchCluster")
 
 	return nil
 }
@@ -202,12 +215,21 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 	srcClusterURL := instance.Spec.SrcClusterURL
 	srcClusterRestConfig := buildRestConfig(srcClusterURL, srcClusterToken)
 	srcClusterK8sClient, err := getControllerRuntimeClient(srcClusterRestConfig)
+	if err != nil {
+		log.Error(err, "Failed to GET destClusterK8sClient")
+		return reconcile.Result{}, nil
+	}
+	srcClusterWatchKey := "srcCluster"
 
-	setupRemoteWatcherManager(r, remoteManagerConfig{
-		remoteRestConfig: srcClusterRestConfig,
-		parentNsName:     request.NamespacedName,
-		parentResource:   instance,
-	})
+	// if _, exists := r.NsNameToRemoteCluster[request.NamespacedName]; exists == false {
+	if _, exists := r.NsNameToRemoteCluster[types.NamespacedName{Name: srcClusterWatchKey, Namespace: srcClusterWatchKey}]; exists == false {
+		log.Info("Setting up RWC Manager...")
+		setupRemoteWatcherManager(r, remoteManagerConfig{
+			remoteRestConfig: srcClusterRestConfig,
+			parentNsName:     request.NamespacedName,
+			parentResource:   instance,
+		}, srcClusterWatchKey)
+	}
 
 	if err != nil {
 		log.Error(err, "Failed to GET srcClusterK8sClient")
@@ -269,12 +291,18 @@ func (r *ReconcileMigrationAIO) Reconcile(request reconcile.Request) (reconcile.
 		log.Error(err, "Failed to GET destClusterK8sClient")
 		return reconcile.Result{}, nil
 	}
+	destWatchKey := "destCluster"
 
-	setupRemoteWatcherManager(r, remoteManagerConfig{
-		remoteRestConfig: destClusterRestConfig,
-		parentNsName:     request.NamespacedName,
-		parentResource:   instance,
-	})
+	// Get RemoteWatchCluster from map if exists
+	// if _, exists := r.NsNameToRemoteCluster[request.NamespacedName]; exists == false {
+	if _, exists := r.NsNameToRemoteCluster[types.NamespacedName{Name: destWatchKey, Namespace: destWatchKey}]; exists == false {
+		log.Info("Setting up RWC Manager...")
+		setupRemoteWatcherManager(r, remoteManagerConfig{
+			remoteRestConfig: destClusterRestConfig,
+			parentNsName:     request.NamespacedName,
+			parentResource:   instance,
+		}, destWatchKey)
+	}
 
 	newRestore := getVeleroRestore(veleroNs, instance.Name+"-restore", newBackup.Name)
 
