@@ -33,6 +33,9 @@ func BuildStagePods(list *[]corev1.Pod) StagePodList {
 	return stagePods
 }
 
+func annotateStagePods(stagePods StagePodList) {
+}
+
 func (p StagePod) volumesContained(pod StagePod) bool {
 	for _, volume := range p.Spec.Volumes {
 		found := false
@@ -67,7 +70,7 @@ func (l *StagePodList) merge(list ...StagePod) {
 	}
 }
 
-func (l *StagePodList) create(client k8sclient.Client) (int, error) {
+func (l *StagePodList) create(client k8sclient.Client, t *Task) (int, error) {
 	existingPods := StagePodList{}
 	if len(*l) > 0 {
 		existingPods.list(client, (*l)[0].Labels)
@@ -77,11 +80,19 @@ func (l *StagePodList) create(client k8sclient.Client) (int, error) {
 		if existingPods.contains(stagePod) {
 			continue
 		}
+		serviceAccounts := ServiceAccounts{}
+		annotatePod(stagePod.Pod, serviceAccounts, t)
+
 		err := client.Create(context.TODO(), &stagePod.Pod)
 		if err != nil && !errors.IsAlreadyExists(err) {
 			return 0, err
 		}
 		counter++
+		err = labelServiceAccountsInternal(client, serviceAccounts, t.sourceNamespaces(), t.UID())
+		if err != nil {
+			log.Trace(err)
+			return 0, err
+		}
 	}
 
 	return counter + len(existingPods), nil
@@ -148,7 +159,7 @@ func (t *Task) ensureStagePodsFromOrphanedPVCs() error {
 		}
 	}
 
-	created, err := stagePods.create(client)
+	created, err := stagePods.create(client, t)
 	if err != nil {
 		log.Trace(err)
 		return err
@@ -185,7 +196,7 @@ func (t *Task) ensureStagePodsFromTemplates() error {
 
 	stagePods := BuildStagePods(&podTemplates)
 
-	created, err := stagePods.create(client)
+	created, err := stagePods.create(client, t)
 	if err != nil {
 		log.Trace(err)
 		return err
@@ -224,7 +235,7 @@ func (t *Task) ensureStagePodsFromRunning() error {
 		stagePods.merge(BuildStagePods(&podList.Items)...)
 	}
 
-	created, err := stagePods.create(client)
+	created, err := stagePods.create(client, t)
 	if err != nil {
 		log.Trace(err)
 		return err
